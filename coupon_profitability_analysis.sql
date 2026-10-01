@@ -1,10 +1,11 @@
 -- 주의: PART 0에는 TRUNCATE / LOAD DATA LOCAL INFILE이 포함되어 있습니다.
 -- 이미 데이터가 적재된 DB에서는 PART 0을 제외하고 PART 1부터 실행하세요.
--- '순수익'은 원가 미반영, 할인·GST 반영 수익성 대리 지표이며 배송료 제외.
--- Clicked는 기존처럼 할인 미적용. 쿠폰의존도·시뮬레이션은 상품라인 기준 보존.
+-- '순수익'은 원가 미반영 수익성 대리 지표입니다. (할인·GST 반영, 배송료 제외)
+-- 쿠폰상태가 Clicked인 거래는 할인 미적용으로 처리했습니다.
+-- 쿠폰의존도와 시뮬레이션은 상품라인 기준으로 계산했습니다.
 
 -- =======================================================================================================
--- 프로젝트명 : '우리 쿠폰, 진짜 남는 장사인가?' - 쿠폰 프로모션의 진짜 수익성 & 고객 세그먼트 분석
+-- 프로젝트명 : '우리 쿠폰, 진짜 남는 장사인가?' - 쿠폰 프로모션 수익성 & 고객 세그먼트 분석
 
 -- [분석용 '마진' 지표 정의 | 금액 단위: USD($)]
 -- 데이터셋에는 상품 원가(COGS)가 제공되지 않으므로 본 프로젝트의 '마진/마진율'은
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS onlinesales_info (
 ) DEFAULT CHARSET=utf8mb4;
 
 TRUNCATE TABLE onlinesales_info;
-LOAD DATA LOCAL INFILE '/Users/hazu/Downloads/portfolio/retail/dacon_ecommerce/Onlinesales_info.csv'
+LOAD DATA LOCAL INFILE './data/Onlinesales_info.csv'
 INTO TABLE onlinesales_info
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n'
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS customer_info (
 ) DEFAULT CHARSET=utf8mb4;
 
 TRUNCATE TABLE customer_info;
-LOAD DATA LOCAL INFILE '/Users/hazu/Downloads/portfolio/retail/dacon_ecommerce/Customer_info.csv'
+LOAD DATA LOCAL INFILE './data/Customer_info.csv'
 INTO TABLE customer_info
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n'
@@ -84,7 +85,7 @@ CREATE TABLE IF NOT EXISTS discount_info (
 ) DEFAULT CHARSET=utf8mb4;
 
 TRUNCATE TABLE discount_info;
-LOAD DATA LOCAL INFILE '/Users/hazu/Downloads/portfolio/retail/dacon_ecommerce/Discount_info.csv'
+LOAD DATA LOCAL INFILE './data/Discount_info.csv'
 INTO TABLE discount_info
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n' 
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS marketing_info (
 ) DEFAULT CHARSET=utf8mb4;
 
 TRUNCATE TABLE marketing_info;
-LOAD DATA LOCAL INFILE '/Users/hazu/Downloads/portfolio/retail/dacon_ecommerce/Marketing_info.csv'
+LOAD DATA LOCAL INFILE './data/Marketing_info.csv'
 INTO TABLE marketing_info
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n'
@@ -111,7 +112,7 @@ CREATE TABLE IF NOT EXISTS tax_info (
 ) DEFAULT CHARSET=utf8mb4;
 
 TRUNCATE TABLE tax_info;
-LOAD DATA LOCAL INFILE '/Users/hazu/Downloads/portfolio/retail/dacon_ecommerce/Tax_info.csv'
+LOAD DATA LOCAL INFILE './data/Tax_info.csv'
 INTO TABLE tax_info
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n'
@@ -278,15 +279,15 @@ SELECT 고객ID, AVG(주문금액) AS 평균_객단가
 FROM 주문별_합계
 GROUP BY 고객ID;
 
--- 주문 단위 F(총주문건수)를 별도 컬럼으로 둔다. 기존 5개 컬럼명은 Tableau 호환을 위해 유지.
--- '총거래건수'는 기존 이름을 유지하지만 실제 의미는 상품라인 수이다. 신규 분석에서는 총주문건수를 F로 사용.
+-- 주문 단위 F(총주문건수)를 별도 컬럼으로 둔다. 나머지 컬럼명은 Tableau 호환을 위해 그대로 사용.
+-- '총거래건수'의 실제 의미는 상품라인 수이며, RFM의 F에는 총주문건수를 사용한다.
 -- 고객별 GROUP BY 안에서는 COUNT(DISTINCT 거래ID)가 (고객ID, 거래ID) 고유 조합의 주문 수이다.
 CREATE OR REPLACE VIEW 고객별집계 AS
 SELECT
 	s.고객ID,
-	COUNT(s.거래ID) AS 총거래건수,  -- 기존 명칭 유지: 상품라인 수(주문 수 아님)
+	COUNT(s.거래ID) AS 총거래건수,  -- 상품라인 수(주문 수 아님)
 	SUM(CASE WHEN s.쿠폰상태 = 'Used' THEN 1 ELSE 0 END) AS 쿠폰사용_거래건수, -- Used 상품라인 수
-	SUM(CASE WHEN s.쿠폰상태 = 'Used' THEN 1 ELSE 0 END) * 1.0 / COUNT(s.거래ID) * 100 AS 쿠폰사용비중, -- 상품라인 기준 유지
+	SUM(CASE WHEN s.쿠폰상태 = 'Used' THEN 1 ELSE 0 END) * 1.0 / COUNT(s.거래ID) * 100 AS 쿠폰사용비중, -- 상품라인 기준
 	SUM(s.순수익) AS 총순수익,
 	COUNT(DISTINCT s.거래ID) AS 총주문건수 -- RFM의 F
 FROM 거래_순수익계산 s
@@ -296,7 +297,7 @@ CREATE OR REPLACE VIEW 고객별_Recency AS
 SELECT
 	고객ID,
 	MAX(거래날짜) AS 마지막구매일,
-	DATEDIFF((SELECT MAX(거래날짜) FROM Onlinesales_info), MAX(거래날짜)) AS Recency
+	DATEDIFF((SELECT MAX(거래날짜) FROM onlinesales_info), MAX(거래날짜)) AS Recency
 FROM 거래_순수익계산
 GROUP BY 고객ID;
 
@@ -321,7 +322,7 @@ SELECT
 		WHEN c.쿠폰사용비중 = 0 THEN '무의존'
 		WHEN c.쿠폰사용비중 = 100 THEN '완전의존'
 	END AS 세그먼트,
-	c.총주문건수 -- 맨 뒤에 두어 CSV 컬럼 순서 유지
+	c.총주문건수 
 FROM 고객별집계 c
 LEFT JOIN 고객별_주문요약 q ON c.고객ID = q.고객ID
 WHERE c.쿠폰사용비중 = 0 OR c.쿠폰사용비중 = 100
@@ -335,7 +336,7 @@ SELECT
 		WHEN 2 THEN '중의존'
 		WHEN 3 THEN '고의존'
 	END AS 세그먼트,
-	총주문건수 -- 두 번째 SELECT도 동일 순서
+	총주문건수 
 FROM 중간구간_분위;
 
 
@@ -373,9 +374,8 @@ SELECT
 	s.카테고리비중 / t.전체카테고리비중 * 100 AS 선호지수
 FROM 세그먼트별_카테고리_비중 s
 LEFT JOIN 전체_카테고리_비중 t ON s.제품카테고리 = t.제품카테고리;
--- 해석 시 거래건수 10건 미만 조합은 표본이 작아 지수 변동성이 크므로 별도 필터링 권장
 -- RFM 라이프사이클까지 함께 교차하지 않은 이유 : 쿠폰의존(5종) RFM(6종) 카테고리(20종)를 다 곱하면
--- 최대 600칸이 생겨, 완전의존(37건)에서 이미 겪은 '표본이 작아 지수가 튄다'는 문제가 훨씬 심해짐
+-- 최대 600칸이 생겨, 완전의존(37개 상품라인)에서 이미 겪은 '표본이 작아 지수가 튄다'는 문제가 훨씬 심해짐
 -- 두 세그먼트 축은 서로 다른 질문에 쓰이도록 역할을 분리함
 -- 5단계는 '무엇을 사는가'(추천/프로모션 설계용), 7-2단계는 '왜 마진이 낮은가'(원인 진단용)
 
@@ -548,7 +548,7 @@ WHERE a.세그먼트 IN ('완전의존','고의존');
 -- 본 결과는 저의존 세그먼트를 벤치마크로 둔 가정상 시나리오이며 캠페인의 실제 증분 이익이 아님.
 -- 상품라인당 개선 여지는 완전의존이 더 크지만, 적용 가능한 상품라인 규모는 고의존이 훨씬 큼.
 -- 메인 액션아이템 : 고의존 대상 할인 의존도 완화 CRM
--- 보조 액션아이템 : 완전의존은 규모 확대보다 상품라인당 수익성 개선 관점에서 별도 접근
+-- 보조 액션아이템 : 완전의존은 규모가 작아 소규모·저비용 실험으로 반응 확인
 -- 실제 캠페인 효과는 A/B 테스트 등 후속 실험으로 검증 필요
 
 
@@ -606,6 +606,18 @@ GROUP BY
         ELSE '기타 고객'
     END;
 
+-- (G-2) 이탈위험 고객 vs 기타 고객 쿠폰 이용 패턴 - Slide 8 하단 비교용
+-- Used비중 = Used 상품라인 수 / 전체 상품라인 수, 실효할인율 = 1 - 실질금액 합 / 할인 전 매출 합
+-- 결과: Used비중 35.2% vs 33.8%, 실효할인율 7.06% vs 6.64%
+SELECT
+    CASE WHEN l.가입구분 = '기존' AND l.RFM등급 = '낮음'
+         THEN '기존+낮음' ELSE '기타 고객' END AS 고객그룹,
+    SUM(CASE WHEN t.쿠폰상태 = 'Used' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS Used비중,
+    (1 - SUM(t.실질금액) / SUM(t.평균금액 * t.수량)) * 100 AS 실효할인율
+FROM RFM_라이프사이클 l
+LEFT JOIN 거래_순수익계산 t ON l.고객ID = t.고객ID
+GROUP BY 고객그룹;
+
 
 -- (H) 마케팅비 대비 매출 효율 (8단계) - 마케팅 효율 대시보드용 (08_마케팅비_매출효율ROAS)
 SELECT * 
@@ -620,4 +632,3 @@ SELECT
 FROM 세그먼트별_거래건당마진 a
 CROSS JOIN (SELECT 거래건당_평균순수익 FROM 세그먼트별_거래건당마진 WHERE 세그먼트 = '저의존') b
 WHERE a.세그먼트 IN ('완전의존','고의존');
-
